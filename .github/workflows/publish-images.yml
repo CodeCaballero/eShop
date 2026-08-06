@@ -1,0 +1,40 @@
+name: Publish container images
+on:
+  workflow_dispatch: 
+ 
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write 
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET (global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Aspire CLI
+        run: |
+          dotnet tool install -g aspire.cli --version 13.2.0
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Build and push images
+        env:
+          REGISTRY_ENDPOINT: ghcr.io
+          ASPIRE_CONTAINER_RUNTIME: docker
+        run: |
+          export REGISTRY_REPOSITORY=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          aspire do push \
+            --apphost src/eShop.AppHost/eShop.AppHost.csproj \
+            --non-interactive \
+            --nologo
