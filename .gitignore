@@ -491,3 +491,7 @@ $RECYCLE.BIN/
 /playwright/.auth/
 /user.json
 .azure
+
+# Aspire CLI (local tool-path) and publish output
+.tools/
+aspire-output/
