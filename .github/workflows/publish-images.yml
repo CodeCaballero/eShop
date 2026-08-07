@@ -1,13 +1,16 @@
 name: Publish container images
+
 on:
-  workflow_dispatch: 
- 
+  workflow_dispatch:
+
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
-      packages: write 
+      packages: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -38,3 +41,36 @@ jobs:
             --apphost src/eShop.AppHost/eShop.AppHost.csproj \
             --non-interactive \
             --nologo
+
+      - name: Publish Docker Compose artifacts
+        run: |
+          aspire publish \
+            --apphost src/eShop.AppHost/eShop.AppHost.csproj \
+            -o ./aspire-output \
+            --non-interactive \
+            --nologo
+
+      - name: Write .env from template
+        working-directory: aspire-output
+        run: |
+          export REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          export TAG=$(docker images --format '{{.Repository}}:{{.Tag}}' \
+            | grep "ghcr.io/${REPO}/webapp:" \
+            | head -1 \
+            | cut -d: -f2)
+          echo "Using REPO=$REPO TAG=$TAG"
+          test -n "$TAG"
+
+          # Only substitute non-secret placeholders (never passwords)
+          envsubst '${REPO} ${TAG}' < ../deploy/env.template > .env
+
+          # Sanity check without dumping secrets (passwords stay empty)
+          grep -E '^(IDENTITY_API_IMAGE|WEBAPP_IMAGE)=' .env
+
+      - name: Upload compose artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aspire-output
+          path: aspire-output/
+          include-hidden-files: true
+          retention-days: 7
