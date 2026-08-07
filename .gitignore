@@ -495,3 +495,7 @@ $RECYCLE.BIN/
 # Aspire CLI (local tool-path) and publish output
 .tools/
 aspire-output/
+
+# Aspire CLI (local tool-path) and publish output
+.tools/
+aspire-output/
