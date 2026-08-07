@@ -1,0 +1,101 @@
+# 4 entornos en paralelo = 4 jobs = 4 VMs (ubuntu-latest).
+# Cada job despliega su propio stack Compose; no hay choque de puertos entre ellos.
+#
+# Requisito: AppHost con AddDockerComposeEnvironment (rama main).
+# Este workflow hace deploy + smoke. Playwright con login en Compose
+# necesita más cambios (baseURL, sin webServer, OIDC).
+
+name: Compose matrix deploy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Renombra estos valores a tus 4 entornos reales
+        environment: [env1, env2, env3, env4]
+
+    name: deploy (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    env:
+      ESHOP_USE_HTTP_ENDPOINTS: "1"
+      ASPIRE_CONTAINER_RUNTIME: docker
+      # Puerto publicado típico del compose generado por Aspire (por VM es independiente)
+      WEBAPP_PORT: "8080"
+      WEBAPP_URL: http://localhost:8080
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET (global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Aspire CLI
+        run: |
+          dotnet tool install -g aspire.cli --version 13.2.0
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Deploy with Aspire (Docker Compose)
+        run: |
+          echo "Environment: ${{ matrix.environment }}"
+          # Sin registry: imágenes locales en esta VM (no publica a GHCR)
+          unset REGISTRY_ENDPOINT REGISTRY_REPOSITORY
+          aspire deploy \
+            --apphost src/eShop.AppHost/eShop.AppHost.csproj \
+            --non-interactive \
+            --nologo
+
+      - name: Smoke — wait for webapp
+        run: |
+          echo "Waiting for ${WEBAPP_URL} (${{ matrix.environment }})"
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null "${WEBAPP_URL}"; then
+              echo "Webapp is up"
+              exit 0
+            fi
+            echo "Attempt $i/60 — not ready yet"
+            sleep 5
+          done
+          echo "Webapp did not become ready in time"
+          docker ps -a || true
+          exit 1
+
+      - name: Smoke — hit webapp
+        run: curl -fsS -I "${WEBAPP_URL}" | head -20
+
+      # Descomenta cuando adaptes Playwright a Compose (baseURL + sin webServer AppHost):
+      # - uses: actions/setup-node@v4
+      #   with:
+      #     node-version: lts/*
+      # - name: Install npm + Playwright
+      #   run: |
+      #     npm ci
+      #     npx playwright install chromium --with-deps
+      # - name: Run Playwright (against Compose)
+      #   env:
+      #     CI: true
+      #     USERNAME1: bob
+      #     PASSWORD: Pass123$
+      #     # Requiere cambios en playwright.config.ts (baseURL y webServer)
+      #   run: npx playwright test
+      # - uses: actions/upload-artifact@v4
+      #   if: always()
+      #   with:
+      #     name: playwright-report-${{ matrix.environment }}
+      #     path: playwright-report/
+      #     retention-days: 7
+
+      - name: Dump compose status on failure
+        if: failure()
+        run: |
+          docker ps -a || true
+          docker compose ls || true
